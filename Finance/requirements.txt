@@ -1,0 +1,11 @@
+langgraph==0.6.6
+python-dotenv==1.1.1
+langchain-openai==0.3.30
+langchain-core==0.3.74
+baostock==0.8.9
+peft==0.17.0
+langchain-mcp-adapters==0.1.9
+transformers==4.51.3
+huggingface-hub==0.34.4
+uv==0.8.12
+akshare>=1.18.64

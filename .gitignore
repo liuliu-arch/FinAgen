@@ -1,0 +1,57 @@
+# Credentials and local configuration
+.env
+.env.*
+!.env.example
+*env.txt
+*secret*
+*credential*
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# IDE and OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Runtime output
+**/logs/
+**/reports/
+tmp/
+*.log
+
+# Model weights, adapters and checkpoints
+Qwen3-*/
+qwen3_8b_*/
+smoke_*/
+balanced_*/
+checkpoint-*/
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.ckpt
+*.onnx
+
+# Datasets and generated artifacts
+*.csv
+*.parquet
+*.arrow
+*.zip
+*.7z
+*.rar
+*.docx
+*.pdf
+
+# Local interview and agent metadata
+docs/interview/
+.agents/
+
