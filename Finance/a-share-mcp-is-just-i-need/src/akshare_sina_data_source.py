@@ -8,7 +8,6 @@ the available evidence instead of hanging on a network login.
 
 from datetime import datetime, timedelta
 import json
-import json
 from typing import List, Optional
 
 import akshare as ak
@@ -163,33 +162,6 @@ class AkshareSinaDataSource(BaostockDataSource):
     def get_all_stock(self, date: Optional[str] = None) -> pd.DataFrame:
         df = ak.stock_zh_a_spot().copy()
         return df.rename(columns={"代码": "code", "名称": "code_name"})
-
-    def crawl_news(self, query: str, top_k: int = 10) -> str:
-        """Fetch structured company news without the legacy Baidu scraper.
-
-        AKShare accepts either a stock code or a company keyword. Scoring is
-        deliberately left to Financial-MCP-Agent's score_financial_news tool.
-        """
-        limit = max(1, min(int(top_k), 10))
-        df = ak.stock_news_em(symbol=str(query).strip())
-        if df.empty:
-            return json.dumps(
-                {"query": query, "count": 0, "news": []},
-                ensure_ascii=False,
-            )
-        records = []
-        for _, row in df.head(limit).iterrows():
-            records.append({
-                "title": str(row.get("新闻标题", "")),
-                "content": str(row.get("新闻内容", "")),
-                "published_at": str(row.get("发布时间", "")),
-                "source": str(row.get("文章来源", "")),
-                "url": str(row.get("新闻链接", "")),
-            })
-        return json.dumps(
-            {"query": query, "count": len(records), "news": records},
-            ensure_ascii=False,
-        )
 
     def crawl_news(self, query: str, top_k: int = 10) -> str:
         """Fetch structured company news without the legacy Baidu scraper.
