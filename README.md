@@ -1,134 +1,169 @@
 # FinAgent
 
-基于 LangGraph、MCP 与 QLoRA 的多智能体股票投研系统。系统将股票研究拆分为基本面、技术面、估值和新闻分析四类专业 Agent，通过 MCP 统一调用公开金融数据工具，并由汇总节点生成结构化 Markdown 研究报告。
+FinAgent is a multi-agent equity research system built with **LangGraph**, **Model Context Protocol (MCP)**, and **QLoRA**. It decomposes an equity research request into four specialized workflows—fundamental, technical, valuation, and news analysis—and synthesizes their outputs into a structured Markdown report.
 
-> 本项目用于技术学习、数据分析演示和二次开发，不提供荐股服务，不构成任何投资建议、收益承诺或交易依据。
+> [!IMPORTANT]
+> This project is intended for technical learning, data-analysis demonstrations, and secondary development. It does not provide investment advice, return guarantees, or trading recommendations.
 
-## 核心能力
+## Highlights
 
-- 使用 LangGraph 状态图并行编排基本面、技术面、估值和新闻分析任务。
-- 使用 ReAct Agent根据任务自主选择金融工具，并将结果写回共享状态。
-- 通过独立 FastMCP Server封装行情、K线、财务报表、交易日和个股新闻等工具。
-- 使用 AKShare接入新浪财经行情/财报端点和东方财富个股新闻端点。
-- 使用4-bit QLoRA分别微调 Qwen3-8B金融新闻情感、风险五级评分 Adapter。
-- 单个4-bit基座同时加载两个命名 LoRA Adapter，按任务动态切换并输出分数及候选概率。
-- 将本地评分器封装为 LangChain Tool，接入新闻 Agent的新闻采集、摘要、评分和影响解读流程。
-- 保存 Agent执行过程、异常信息和最终 Markdown报告。
+- Orchestrates four domain-specific agents and one synthesis agent with a LangGraph state graph.
+- Uses ReAct agents to select financial tools and write evidence-backed results to shared state.
+- Exposes market data, K-line, financial statement, trading-calendar, and news capabilities through a standalone FastMCP server.
+- Integrates Sina Finance and Eastmoney data through an AKShare-based adapter.
+- Fine-tunes separate five-level sentiment and risk scorers on Qwen3-8B using 4-bit QLoRA.
+- Loads two named LoRA adapters on a single quantized base model and switches adapters at inference time.
+- Integrates the local sentiment/risk scorer into the news agent as a LangChain tool.
+- Records agent execution, errors, and the final Markdown research report.
 
-## 系统架构
+## Architecture
 
 ```mermaid
 flowchart TB
-    U[用户查询] --> P[输入解析与 AgentState]
-    P --> G[LangGraph start_node]
+    U["User query"] --> P["Input parsing and AgentState"]
+    P --> G["LangGraph start node"]
 
-    G --> F[基本面 Agent]
-    G --> T[技术面 Agent]
-    G --> V[估值 Agent]
-    G --> N[新闻 Agent]
+    G --> F["Fundamental agent"]
+    G --> T["Technical agent"]
+    G --> V["Valuation agent"]
+    G --> N["News agent"]
 
-    F --> C[MCP Client]
+    F --> C["MCP client"]
     T --> C
     V --> C
-    N -->|crawl_news| C
+    N -->|"crawl_news"| C
 
-    C -->|stdio| S[FastMCP Server]
-    S --> A[AKShare 数据适配器]
-    A --> SI[新浪财经行情与财报]
-    A --> EM[东方财富个股新闻]
+    C -->|"stdio"| S["FastMCP server"]
+    S --> A["AKShare data adapter"]
+    A --> SI["Sina market and financial data"]
+    A --> EM["Eastmoney company news"]
 
-    N --> L[本地新闻评分 Tool]
-    L --> Q[Qwen3-8B 4-bit 基座]
-    Q --> SA[Sentiment LoRA]
-    Q --> RA[Risk LoRA]
+    N --> L["Local news scoring tool"]
+    L --> Q["Qwen3-8B 4-bit base model"]
+    Q --> SA["Sentiment LoRA adapter"]
+    Q --> RA["Risk LoRA adapter"]
 
-    F --> SUM[汇总节点]
+    F --> SUM["Synthesis agent"]
     T --> SUM
     V --> SUM
     N --> SUM
-    SUM --> R[Markdown 研究报告]
+    SUM --> R["Markdown research report"]
 ```
 
-### 模型分工
+### Model Responsibilities
 
-- OpenAI兼容大模型负责 ReAct工具决策、金融数据解读、新闻摘要和最终报告汇总。
-- Qwen3-8B + Sentiment LoRA负责金融新闻情感1—5级评分。
-- Qwen3-8B + Risk LoRA负责金融新闻风险1—5级评分。
-- 情感和风险模型是新闻 Agent调用的专业评分工具，不是两个独立 Agent。
+- An OpenAI-compatible LLM performs ReAct tool selection, financial-data interpretation, news summarization, and final report synthesis.
+- Qwen3-8B with the sentiment adapter produces a sentiment score from 1 to 5.
+- Qwen3-8B with the risk adapter produces a risk score from 1 to 5.
+- The two fine-tuned scorers are tools used by the news agent, not standalone agents.
 
-## 项目结构
+## Repository Layout
 
 ```text
 Finance/
-├─ Financial-MCP-Agent/               # LangGraph 主工程
-│  ├─ src/main.py                     # 完整多 Agent入口
-│  ├─ src/news_only_main.py           # 新闻链路隔离测试入口
-│  ├─ src/agents/                     # 五个分析/汇总节点
-│  ├─ src/tools/mcp_client.py         # MCP Client与共享初始化
-│  ├─ src/tools/local_finance_model.py# 双 Adapter本地评分工具
-│  └─ .env.example                    # 安全配置模板
-├─ a-share-mcp-is-just-i-need/        # A股 FastMCP Server
-│  ├─ mcp_server.py                   # MCP Server入口
-│  ├─ src/tools/                      # 金融工具注册
-│  └─ src/akshare_sina_data_source.py # AKShare数据源适配
-├─ train_qwen_qlora.py                # 统一 QLoRA训练脚本
-├─ evaluate_qwen_qlora.py             # 单 Adapter评测脚本
-├─ run_finance_models.py              # 双 Adapter独立推理
+├─ Financial-MCP-Agent/                # Main LangGraph application
+│  ├─ src/main.py                      # Full multi-agent entry point
+│  ├─ src/news_only_main.py            # Isolated news-pipeline runner
+│  ├─ src/agents/                      # Four analysts and the synthesizer
+│  ├─ src/tools/mcp_client.py          # MCP client and shared initialization
+│  ├─ src/tools/local_finance_model.py # Dual-adapter scoring tool
+│  └─ .env.example                     # Safe configuration template
+├─ a-share-mcp-is-just-i-need/         # A-share FastMCP server
+│  ├─ mcp_server.py                    # MCP server entry point
+│  ├─ src/tools/                       # Financial tool registration
+│  └─ src/akshare_sina_data_source.py  # AKShare-backed data adapter
+├─ train_qwen_qlora.py                 # Unified QLoRA trainer
+├─ evaluate_qwen_qlora.py              # Single-adapter evaluator
+├─ run_finance_models.py               # Standalone dual-adapter inference
 └─ requirements.txt
 ```
 
-## 工作流程
+## End-to-End Workflow
 
-1. 主程序从自然语言中提取公司名称和股票代码，构造 `AgentState`。
-2. LangGraph并行调度四个专业分析节点。
-3. ReAct Agent通过 MCP Client发现并调用金融工具。
-4. FastMCP Server调用 AKShare并将结果转换为 Markdown表格或新闻 JSON。
-5. 新闻 Agent抓取最多三条新闻，为每条新闻生成摘要并调用本地评分工具。
-6. 本地评分器在同一 Qwen3-8B基座上依次切换情感、风险 Adapter。
-7. 汇总节点整合四路分析，生成并保存结构化 Markdown报告。
+1. The application extracts a company name and stock code from the user request and initializes `AgentState`.
+2. LangGraph fans out to the fundamental, technical, valuation, and news agents.
+3. Each ReAct agent discovers and invokes the financial tools it needs through the MCP client.
+4. The FastMCP server retrieves public data through AKShare and returns normalized tables or news JSON.
+5. The news agent fetches up to three articles, summarizes each article, and invokes the local scoring tool.
+6. The scorer switches between the sentiment and risk adapters on the same Qwen3-8B base model.
+7. The synthesis agent combines all four analyses and writes a structured Markdown report.
 
-## 环境准备
+## Requirements
 
-建议使用 Linux、Python 3.10和 NVIDIA GPU。QLoRA训练和本地双 Adapter推理需要 CUDA环境；Agent API调用与不加载本地模型的模块测试可在 CPU环境进行。
+- Python 3.10+
+- Linux is recommended for QLoRA training and local quantized inference
+- NVIDIA GPU with CUDA support for 4-bit training and inference
+- An OpenAI-compatible chat-model API for the agent workflow
+
+Agent-only development and tests that do not load the local Qwen model can run on CPU.
+
+## Quick Start
+
+### 1. Install Dependencies
+
+Install a PyTorch build compatible with your CUDA environment first, then install the project dependencies:
 
 ```bash
 cd Finance
-
-# 建议先按照本机CUDA版本安装PyTorch，再安装项目依赖
 pip install -r requirements.txt
-
-# QLoRA训练与评测额外依赖
 pip install bitsandbytes datasets scikit-learn pandas
 ```
 
-复制安全配置模板：
+### 2. Configure Environment Variables
 
 ```bash
 cd Financial-MCP-Agent
 cp .env.example .env
 ```
 
-然后在 `.env` 中填写自己的 API Key、模型名称，以及本地基座和 Adapter路径。不要提交 `.env` 或任何真实密钥。
+Set your API endpoint, model name, base-model path, and adapter paths in `.env`. Never commit `.env` or a real API credential.
 
-## 数据集与模型
+### 3. Run the Multi-Agent Workflow
 
-训练脚本默认使用以下 Hugging Face数据集：
+Linux/macOS:
 
-- 情感评分：[benstaf/nasdaq_news_sentiment](https://huggingface.co/datasets/benstaf/nasdaq_news_sentiment)
-- 风险评分：[benstaf/risk_nasdaq](https://huggingface.co/datasets/benstaf/risk_nasdaq)
+```bash
+cd Finance/Financial-MCP-Agent
+PYTHONPATH=. python -m src.main --command "分析贵州茅台(600519)"
+```
 
-默认基座为 `Qwen3-8B`。请自行下载模型和数据集，并放到本地目录；模型权重、Adapter和完整数据集不包含在 Git仓库中。
+Windows PowerShell 7:
 
-训练使用的核心字段：
+```powershell
+Set-Location Finance\Financial-MCP-Agent
+$env:PYTHONPATH = "."
+python -m src.main --command "分析贵州茅台(600519)"
+```
 
-- `Lsa_summary`：金融新闻摘要；
-- `Stock_symbol`：股票代码；
-- `sentiment_deepseek`：情感1—5级标签；
-- `risk_deepseek`：风险1—5级标签。
+Run only the news pipeline:
 
-## QLoRA训练
+```bash
+PYTHONPATH=. python -m src.news_only_main \
+  --company "贵州茅台" \
+  --stock "sh.600519"
+```
 
-情感模型示例：
+## Data and Base Model
+
+The training scripts use the following Hugging Face datasets:
+
+- Sentiment scoring: [benstaf/nasdaq_news_sentiment](https://huggingface.co/datasets/benstaf/nasdaq_news_sentiment)
+- Risk scoring: [benstaf/risk_nasdaq](https://huggingface.co/datasets/benstaf/risk_nasdaq)
+
+The default base model is Qwen3-8B. Download the model and datasets separately and provide their local paths to the scripts. Model weights, trained adapters, and full datasets are intentionally excluded from this repository.
+
+Core training fields:
+
+| Field | Purpose |
+|---|---|
+| `Lsa_summary` | Financial-news summary used as model input |
+| `Stock_symbol` | Associated stock symbol |
+| `sentiment_deepseek` | Sentiment label from 1 to 5 |
+| `risk_deepseek` | Risk label from 1 to 5 |
+
+## QLoRA Fine-Tuning
+
+Train the sentiment adapter:
 
 ```bash
 cd Finance
@@ -141,7 +176,7 @@ python train_qwen_qlora.py \
   --output-dir ./qwen3_8b_sentiment_final
 ```
 
-风险模型示例：
+Train the risk adapter:
 
 ```bash
 python train_qwen_qlora.py \
@@ -153,24 +188,24 @@ python train_qwen_qlora.py \
   --output-dir ./qwen3_8b_risk_final
 ```
 
-当前脚本的核心默认配置：
+### Training Configuration
 
-| 参数 | 配置 |
+| Parameter | Value |
 |---|---|
-| 量化 | 4-bit NF4 + double quant |
-| 计算精度 | bf16，GPU不支持时使用fp16 |
+| Quantization | 4-bit NF4 with double quantization |
+| Compute dtype | BF16, with FP16 fallback |
 | LoRA rank / alpha / dropout | 16 / 32 / 0.05 |
-| 目标模块 | q/k/v/o_proj、gate/up/down_proj |
-| Optimizer | paged_adamw_8bit |
-| Scheduler | cosine，warmup ratio 0.03 |
-| 默认batch / 梯度累积 | 1 / 8 |
-| 默认学习率 | 2e-4 |
-| 默认训练轮数 | 1 |
-| 默认验证比例 | 10% |
+| Target modules | `q_proj`, `k_proj`, `v_proj`, `o_proj`, `gate_proj`, `up_proj`, `down_proj` |
+| Optimizer | `paged_adamw_8bit` |
+| Scheduler | Cosine, warm-up ratio 0.03 |
+| Default batch size / gradient accumulation | 1 / 8 |
+| Default learning rate | 2e-4 |
+| Default epochs | 1 |
+| Default validation split | 10% |
 
-训练采用 completion-only loss：prompt和新闻摘要对应的 token不参与损失，只在目标分数及 EOS token上计算 CausalLM loss。
+Training uses a completion-only objective. Prompt and article-summary tokens are masked, so the causal language-modeling loss is computed only on the target score and EOS token.
 
-## 模型评测
+## Evaluation
 
 ```bash
 python evaluate_qwen_qlora.py \
@@ -188,18 +223,18 @@ python evaluate_qwen_qlora.py \
   --max-samples 2000
 ```
 
-一次留出验证记录如下：
+Recorded holdout results:
 
-| 任务 | 验证样本 | Accuracy | Macro-F1 | ±1级容差准确率 |
+| Task | Validation samples | Accuracy | Macro-F1 | Within-one-level accuracy |
 |---|---:|---:|---:|---:|
-| 情感评分 | 500 | 0.732 | 0.732 | 96.6% |
-| 风险评分 | 200 | 0.670 | 0.700 | 97.0% |
+| Sentiment | 500 | 0.732 | 0.732 | 96.6% |
+| Risk | 200 | 0.670 | 0.700 | 97.0% |
 
-其中容差准确率表示预测等级与真实等级之差不超过1。该指标由实验混淆矩阵计算，用于补充展示有序五分类的相邻等级误差，不能替代严格 Accuracy与 Macro-F1。
+Within-one-level accuracy counts a prediction as acceptable when its distance from the target label is at most one. It is included because the task is ordinal, but it does not replace exact accuracy or Macro-F1.
 
-当前验证集由训练脚本按相同采样配置和随机种子重建，不是额外的外部测试集。更严格的评测应使用按时间、股票或新闻事件隔离的外部测试集。
+The holdout split is reconstructed by the evaluation script with the same sampling mode and random seed used during training. It is not an independent external test set. A stronger evaluation would isolate samples by time, stock, or news event.
 
-## 双 Adapter推理
+## Dual-Adapter Inference
 
 ```bash
 cd Finance
@@ -211,61 +246,39 @@ python run_finance_models.py \
   --news "Apple reported stronger-than-expected revenue and raised guidance."
 ```
 
-推理时只加载一次4-bit Qwen3-8B基座，再加载两个命名 Adapter。程序通过 `set_adapter()`依次切换任务，并在最后一个位置的 logits中抽取数字1—5对应 token，经过候选 softmax得到分数和相对概率。
+The inference service loads the 4-bit Qwen3-8B base model once, attaches two named adapters, and uses `set_adapter()` to switch tasks. It extracts the logits of label tokens 1 through 5 at the final sequence position and applies a softmax over those candidates to produce a score and relative distribution.
 
-这些概率只在五个候选标签之间归一化，尚未进行概率校准，不应直接解释为真实置信度。
+These values are normalized only across the five candidate labels. They are not calibrated probabilities and should not be interpreted as real-world confidence estimates.
 
-## 运行多 Agent系统
+## MCP Tool Layer
 
-Linux/macOS：
+The FastMCP server registers 27 tool definitions across market data, financial statements, indices, macroeconomics, trading dates, analysis, and news. Core capabilities verified with the current AKShare adapter include:
 
-```bash
-cd Finance/Financial-MCP-Agent
-PYTHONPATH=. python -m src.main --command "分析贵州茅台(600519)"
-```
+- Basic company information and latest quotes
+- Daily, weekly, and monthly K-line data
+- Income statements, balance sheets, and cash-flow statements
+- Multi-period growth, operating-efficiency, and DuPont-related fields
+- Trading dates and A-share listings
+- Eastmoney company news
 
-Windows PowerShell：
+Some dividend, index-constituent, macroeconomic, earnings-preview, and related tools return `unavailable` with the current replacement data source. The number of registered tools should therefore not be interpreted as the number of fully supported live-data capabilities.
 
-```powershell
-cd Finance\Financial-MCP-Agent
-$env:PYTHONPATH = "."
-python -m src.main --command "分析贵州茅台(600519)"
-```
+## Limitations
 
-只测试新闻 Agent：
+- Free financial-data endpoints may be rate-limited, disconnected, delayed, or changed without notice.
+- Some technical indicators, valuation assessments, and narrative conclusions are inferred by the LLM and do not yet have deterministic numerical validation.
+- The fine-tuning datasets primarily contain English-language Nasdaq news, creating language and market-domain shift when scoring Chinese A-share news.
+- Extreme risk levels are underrepresented, so minority-class metrics may be unstable.
+- The project does not include a backtesting engine; classification metrics do not demonstrate investment profitability.
+- Generated reports may contain incorrect or outdated information and must be checked against primary data sources.
+- Adapter switching is protected by a lock, so concurrent requests are serialized within one process.
 
-```bash
-PYTHONPATH=. python -m src.news_only_main \
-  --company "贵州茅台" \
-  --stock "sh.600519"
-```
+## Security
 
-## MCP工具层
+- Never commit `.env`, API keys, access tokens, or other credentials.
+- Do not commit model weights, complete training datasets, runtime logs, or reports containing user queries.
+- Revoke and replace any credential that has appeared in plaintext files, terminal output, or shared logs.
 
-MCP Server共注册27个工具定义，覆盖行情、财务、指数、宏观、日期、综合分析和新闻等类别。当前 AKShare替代数据源已验证的核心能力包括：
+## Disclaimer
 
-- 股票基本信息与最新行情；
-- 日/周/月历史 K线；
-- 利润表、资产负债表和现金流量表；
-- 基于多期报表的成长、营运和杜邦相关字段；
-- 交易日与全市场股票列表；
-- 东方财富个股新闻。
-
-部分分红、指数成分、宏观数据和业绩预告工具在当前替代数据源中会返回 `unavailable`。注册工具数量不代表所有工具当前均有完整数据能力。
-
-## 主要限制
-
-- 免费金融数据接口可能限流、断开连接、变更字段或存在行情延迟。
-- 部分技术指标、估值和自然语言结论仍由大模型基于工具结果推断，缺少确定性数值校验。
-- 训练数据主要为英文 Nasdaq新闻，应用到中文 A股新闻时存在语言和市场域偏移。
-- 风险极端等级样本较少，少数类指标可能存在较大波动。
-- 当前没有回测系统，模型分类指标不能证明能够获得投资收益。
-- 最终报告可能包含错误或过时信息，必须结合原始数据和人工研究复核。
-- 本地评分器通过锁保护 Adapter切换，单进程并发请求会被串行化。
-
-## 安全说明
-
-- 不要提交 `.env`、API Key、访问令牌或任何真实凭据。
-- 不要将模型权重、完整训练数据、运行日志或包含用户查询的报告提交到仓库。
-- 如果密钥曾以明文保存在文件或终端输出中，应立即在服务商控制台撤销并重新生成。
-
+FinAgent is a research and engineering demonstration. All data and generated content are provided for informational purposes only and may be incomplete, delayed, or incorrect. Users are responsible for independently verifying all information and making their own investment decisions.
